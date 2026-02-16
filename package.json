@@ -1,0 +1,20 @@
+{
+  "name": "VORTE-PRO",
+  "version": "1.0.0",
+  "description": "WhatsApp Bot with Express Server",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.5.0",
+    "express": "^4.18.2",
+    "qrcode": "^1.5.3",
+    "yt-search": "^2.10.4",
+    "pino": "^8.15.0"
+  },
+  "engines": {
+    "node": ">=20.13.3"
+  }
+}
