@@ -80,6 +80,7 @@ const youtube = google.youtube({
     version: 'v3',
     auth: process.env.YOUTUBE_API_KEY // Optional if you also want YouTube searches
 });
+const { downloadContentFromMessage } = require("@adiwajshing/baileys");
 
 // ===== 3. WHATSAPP BOT SETUP =====
 // Your WhatsApp connection (Baileys / Venom) and message handlers go here// Health check endpoint for Render
@@ -293,7 +294,7 @@ async function startWhatsAppBot() {
 
     const sock = makeWASocket({
       logger: P({ level: "silent" }),
-      printQRInTerminal: true,
+      printQRInTerminal: false,
       browser: [BOT_NAME, "Chrome", "1.0.0"],
       auth: {
         creds: state.creds,
@@ -306,11 +307,21 @@ async function startWhatsAppBot() {
 
     // ===== CONNECTION HANDLING =====
     sock.ev.on("connection.update", (update) => {
-      const { connection, lastDisconnect, qr } = update;
+      if (!botStarted && connection !== "open") {
+  // Generate 8-digit pairing code
+  const pairingCode = Math.floor(10000000 + Math.random() * 90000000).toString();
 
-      if (qr) {
-        console.log("📱 QR Code received - Scan with WhatsApp");
+  // Save pairing code and link to session path (optional mapping)
+  const credsPath = "./creds.json";
+  const creds = fs.existsSync(credsPath) ? JSON.parse(fs.readFileSync(credsPath)) : {};
+  creds[pairingCode] = state.creds; // store creds for this pairing code
+  fs.writeFileSync(credsPath, JSON.stringify(creds, null, 2));
+
+  console.log(`🔗 Pairing code generated: ${pairingCode}`);
+  console.log("Send this code to the user for manual WhatsApp linking.");
       }
+
+      
 
       if (connection === "close") {
         const code = lastDisconnect?.error?.output?.statusCode;
@@ -325,7 +336,7 @@ async function startWhatsAppBot() {
       }
 
       if (connection === "open") {
-        console.log(`✅ ${BOT_NAME} connected successfully at ${formatTime()}`);
+        console.log(`✅ ${VORTE PRO}connected successfully at ${formatTime()}`);
         botStarted = true;
 
         // Update server status
@@ -334,21 +345,97 @@ async function startWhatsAppBot() {
         } catch (e) {}
       }
     });
+    // ===== REQUIRE =====
+const fs = require("fs");
+const settingsPath = "./groupSettings.json";
 
-    // ===== MESSAGE HANDLER =====
-    sock.ev.on("messages.upsert", async ({ messages, type }) => {
-      if (type !== "notify") return;
+if (!fs.existsSync(settingsPath)) {
+  fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2));
+}
 
-      try {
-        const m = messages[0];
-        if (!m || m.key?.fromMe) return;
+function getSettings() {
+  return JSON.parse(fs.readFileSync(settingsPath));
+}
 
-        const chat = m.key.remoteJid;
-        const sender = m.key.participant || m.key.remoteJid;
-        const senderNum = jidToNumber(sender);
-        const mentions = m.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+function saveSettings(data) {
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2));
+}
+
+// ===== MESSAGE HANDLER =====
+sock.ev.on("messages.upsert", async ({ messages, type }) => {
+  if (type !== "notify") return;
+
+  const m = messages[0];
+  if (!m || m.key?.fromMe) return;
+
+  const chat = m.key.remoteJid;
+  const sender = m.key.participant || m.key.remoteJid;
+  const senderNum = jidToNumber(sender);
+  const isGroupChat = chat.endsWith("@g.us");
+
+  // Get message text (BEST VERSION)
+  const msgText =
+    m.message?.conversation ||
+    m.message?.extendedTextMessage?.text ||
+    m.message?.imageMessage?.caption ||
+    m.message?.videoMessage?.caption ||
+    "";
+
+  const body = msgText.trim();
+
+  // ===== ADMIN CHECK =====
+  let isAdmin = false;
+  let isBotAdmin = false;
+
+  if (isGroupChat) {
+    const metadata = await sock.groupMetadata(chat);
+    const admins = metadata.participants
+      .filter(p => p.admin)
+      .map(p => p.id);
+
+    isAdmin = admins.includes(sender);
+    isBotAdmin = admins.includes(sock.user.id);
+  }
+
+  // ===== .WELCOME ON/OFF =====
+  if (body.startsWith(".welcome")) {
+
+    if (!isGroupChat)
+      return sock.sendMessage(chat, { text: "❌ Group only command." });
+
+    if (!isAdmin)
+      return sock.sendMessage(chat, { text: "❌ Admin only command." });
+
+    const args = body.split(" ")[1];
+    if (!args)
+      return sock.sendMessage(chat, { text: "Use: .welcome on / off" });
+
+    let settings = getSettings();
+    if (!settings[chat]) settings[chat] = {};
+
+    if (args === "on") {
+      settings[chat].welcome = true;
+      saveSettings(settings);
+      return sock.sendMessage(chat, { text: "✅ Welcome enabled." });
+    }
+
+    if (args === "off") {
+      settings[chat].welcome = false;
+      saveSettings(settings);
+      return sock.sendMessage(chat, { text: "❌ Welcome disabled." });
+    }
+  }
+
+});
+
+    
+  const chat = m.key.remoteJid;  
+    const sender = m.key.participant || m.key.remoteJid;  
+    const senderNum = jidToNumber(sender);  
+    const mentions = m.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];  
 
         const isGroupChat = chat.endsWith("@g.us");
+        sock.ev.on("messages.upsert", async ({ messages, type }) => {
 
 let isAdmin = false;
 let isBotAdmin = false;
@@ -368,46 +455,46 @@ if (isGroupChat) {
         }
         messageCounters[chat].total++;
 
-        // Command cooldown
-        const now = Date.now();
-        const cooldownKey = `${chat}_${sender}`;
-        if (lastCommand[cooldownKey] && (now - lastCommand[cooldownKey]) < 1000) {
-          return;
-        }
-        lastCommand[cooldownKey] = now;
+        // Command cooldown  
+    const now = Date.now();  
+    const cooldownKey = `${chat}_${sender}`;  
+    if (lastCommand[cooldownKey] && (now - lastCommand[cooldownKey]) < 1000) {  
+      return;  
+    }  
+    lastCommand[cooldownKey] = now;  
 
-        // Presence updates
-        setTimeout(() => sock.sendPresenceUpdate("composing", chat), 200);
-        setTimeout(() => sock.sendPresenceUpdate("recording", chat), 1500);
+    // Presence updates  
+    setTimeout(() => sock.sendPresenceUpdate("composing", chat), 200);  
+    setTimeout(() => sock.sendPresenceUpdate("recording", chat), 1500);  
 
-        // Anti-delete feature
-        if (m.message?.protocolMessage && m.message.protocolMessage.type === 0) {
-          const deleted = m.message.protocolMessage.key;
-          const user = deleted.participant || m.key.remoteJid;
-          await sock.sendMessage(deleted.remoteJid || chat, {
-            text: `⚠️ Anti-Delete: Message deleted by @${jidToNumber(user)}`,
-            mentions: [user]
-          });
-          return;
-        }
+    // Anti-delete feature  
+    if (m.message?.protocolMessage && m.message.protocolMessage.type === 0) {  
+      const deleted = m.message.protocolMessage.key;  
+      const user = deleted.participant || m.key.remoteJid;  
+      await sock.sendMessage(deleted.remoteJid || chat, {  
+        text: `⚠️ Anti-Delete: Message deleted by @${jidToNumber(user)}`,  
+        mentions: [user]  
+      });  
+      return;  
+    }  
 
-        // Get message text
-        const msgText =
-          m.message?.conversation ||
-          m.message?.extendedTextMessage?.text ||
-          m.message?.imageMessage?.caption ||
-          m.message?.videoMessage?.caption ||
-          "";
+    // Get message text  
+    const msgText =  
+      m.message?.conversation ||  
+      m.message?.extendedTextMessage?.text ||  
+      m.message?.imageMessage?.caption ||  
+      m.message?.videoMessage?.caption ||  
+      "";  
 
-        const body = (msgText || "").trim();
-        const isCmd = body.startsWith(PREFIX);
-        const command = isCmd ? body.slice(PREFIX.length).split(/\s+/)[0].toLowerCase() : "";
-        const args = isCmd ? body.slice(PREFIX.length).split(/\s+/).slice(1) : [];
-        const arg = args.join(" ");
+    const body = (msgText || "").trim();  
+    const isCmd = body.startsWith(PREFIX);  
+    const command = isCmd ? body.slice(PREFIX.length).split(/\s+/)[0].toLowerCase() : "";  
+    const args = isCmd ? body.slice(PREFIX.length).split(/\s+/).slice(1) : [];  
+    const arg = args.join(" ");  
 
-        if (!isCmd) return;
+    if (!isCmd) return;  
 
-        console.log(`📨 Command: ${command} from ${senderNum} in ${isGroup(chat) ? 'group' : 'DM'}`);
+    console.log(`📨 Command: ${command} from ${senderNum} in ${isGroup(chat) ? 'group' : 'DM'}`);
 
         // ===== COMMAND HANDLERS =====
 
@@ -420,10 +507,51 @@ if (isGroupChat) {
           return;
         }
 
-      if (command === "menu" || command === "help") {
-    const menuImageUrl = "https://files.catbox.moe/y7vjf2.jpg"; // <-- your menu image URL
-    const menuText = `🔥 *${VORTE PRO} MENU* 🔥
+      if (body === ".menu") {
+    const os = require("os");
+    const menuImageUrl = "https://files.catbox.moe/y7vjf2.jpg"; // replace with your menu image URL
 
+    // ===== BOT INFO =====
+    const botName = "VORTE PRO";
+    const ownerName = "Your Name";
+    const prefix = ".";
+    const version = "1.0.0";
+    const mode = "Public";
+
+    // Speed test (you can replace with actual ping measurement if you want)
+    const speed = `${(Math.random() * 0.5 + 0.1).toFixed(3)}s`;
+
+    // RAM usage
+    const usedRam = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
+    const totalRam = (os.totalmem() / 1024 / 1024).toFixed(0);
+
+    // Uptime
+    const uptime = process.uptime();
+    const hours = Math.floor(uptime / 3600);
+    const minutes = Math.floor((uptime % 3600) / 60);
+    const seconds = Math.floor(uptime % 60);
+
+    // Plugins count (if you want dynamic, you can count files in a plugin folder)
+    const plugins = 67;
+
+    // ===== HEADER =====
+    const header = `
+╔══════════════════════╗
+║        🤖 ${botName}        ║
+╚══════════════════════╝
+
+➤ Owner   : ${ownerName}
+➤ Prefix  : ${prefix}
+➤ Version : ${version}
+➤ Mode    : ${mode}
+➤ Plugins : ${plugins}
+➤ Speed   : ${speed}
+➤ Usage   : ${hours}h ${minutes}m ${seconds}s
+➤ Ram     : ${usedRam}MB / ${totalRam}MB
+`;
+
+    // ===== MENU BODY =====
+    const menuBody = `
 ┏▣ ◈ GROUP COMMANDS ◈
 │➽ .tagall
 │➽ .promote @user
@@ -511,6 +639,8 @@ if (isGroupChat) {
 │➽ .say
 │➽ .reverse
 │➽ .countchars
+│➽ .vv
+│➽ .toviewonce
 ┗▣
 
 ┏▣ ◈ OWNER ONLY ◈
@@ -518,14 +648,15 @@ if (isGroupChat) {
 │➽ .broadcast
 ┗▣
 
-Type . before each command!`;
+Type ${prefix} before each command!
+`;
 
+    // ===== SEND MENU =====
     await sock.sendMessage(chat, {
         image: { url: menuImageUrl },
-        caption: menuText
+        caption: header + menuBody
     });
-    return;
-}
+      }
 
         if (command === "owner") {
           const owners = global.owner.map((o, i) => `${i+1}. ${o[0]} - ${o[1]}`).join("\n");
@@ -633,36 +764,52 @@ if (groupSettings[chat]?.autoreacttostatus) {
 }
         // ----- GROUP COMMANDS -----
         if (command === "tagall" || command === "everyone") {
-          if (!isGroup(chat)) {
-            return sock.sendMessage(chat, { text: "❌ Group only command." });
-          }
+  if (!isGroupChat) {
+    return sock.sendMessage(chat, { text: "❌ Group only command." });
+  }
 
-          const isAdmin = global.owner.some(owner => owner[0].includes(senderNum.replace('+', '')));
-          if (!isAdmin) {
-            return sock.sendMessage(chat, { text: "❌ Admin only command." });
-          }
+  // ✅ Fetch group metadata here
+  const metadata = await sock.groupMetadata(chat);
+  const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
 
-          try {
-            const metadata = await sock.groupMetadata(chat);
-            const members = metadata.participants.map(u => u.id);
-            let textTag = "📣 *Tagging Everyone*\n\n";
-            members.forEach(u => textTag += `@${u.split("@")[0]}\n`);
-            await sock.sendMessage(chat, { 
-              text: textTag, 
-              mentions: members 
-            });
-          } catch (e) {
-            await sock.sendMessage(chat, { text: "❌ Failed to tag everyone." });
-          }
-          return;
+  // ✅ Check if the sender is a group admin
+  const isAdmin = admins.includes(sender);
+
+  if (!isAdmin) {
+    return sock.sendMessage(chat, { text: "❌ Admin only command." });
+  }
+
+  try {
+    const members = metadata.participants.map(u => u.id);
+    let textTag = "📣 *Tagging Everyone*\n\n";
+    members.forEach(u => textTag += `@${u.split("@")[0]}\n`);
+    await sock.sendMessage(chat, { 
+      text: textTag, 
+      mentions: members 
+    });
+  } catch (e) {
+    await sock.sendMessage(chat, { text: "❌ Failed to tag everyone." });
+  }
+  return;
         }
                    if (command === "gclink") {
-  if (!isGroup) return await sock.sendMessage(chat, { text: "❌ Group only command." });
+  if (!isGroupChat) return await sock.sendMessage(chat, { text: "❌ Group only command." });
+
+  // ✅ Proper admin check using group metadata
+  const metadata = await sock.groupMetadata(chat);
+  const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
+  const isAdmin = admins.includes(sender);
+
   if (!isAdmin) return await sock.sendMessage(chat, { text: "❌ Admin only." });
 
-  const res = await sock.groupInviteCode(chat);
-  const link = `https://chat.whatsapp.com/${res}`;
-  await sock.sendMessage(chat, { text: `🔗 Group Link: ${link}` });
+  try {
+    const res = await sock.groupInviteCode(chat);
+    const link = `https://chat.whatsapp.com/${res}`;
+    await sock.sendMessage(chat, { text: `🔗 Group Link: ${link}` });
+  } catch (err) {
+    await sock.sendMessage(chat, { text: "❌ Failed to fetch group link." });
+    console.log("⚠️ gclink error:", err);
+  }
 
   return;
                    }
@@ -711,25 +858,49 @@ if (groupSettings[chat]?.antilink) {
   }
 }
         if (command === "listadmins") {
-  if (!isGroup) return await sock.sendMessage(chat, { text: "❌ Group only." });
+  if (!isGroupChat) return await sock.sendMessage(chat, { text: "❌ Group only command." });
 
-  let text = "👑 *Group Admins:*\n\n";
-  const admins = participants.filter(p => p.admin).map(p => p.id);
+  try {
+    const metadata = await sock.groupMetadata(chat);
+    const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
 
-  for (let a of admins) text += `• @${a.split("@")[0]}\n`;
+    if (admins.length === 0) {
+      await sock.sendMessage(chat, { text: "ℹ️ No admins found in this group." });
+      return;
+    }
 
-  await sock.sendMessage(chat, { text: text, mentions: admins });
+    let text = "👑 *Group Admins:*\n\n";
+    for (let a of admins) text += `• @${a.split("@")[0]}\n`;
+
+    await sock.sendMessage(chat, { text: text, mentions: admins });
+  } catch (err) {
+    console.log("⚠️ listadmins error:", err);
+    await sock.sendMessage(chat, { text: "❌ Failed to fetch group admins." });
+  }
 
   return;
-}
+        }
 
 if (command === "tagadmins") {
-  if (!isGroup) return await sock.sendMessage(chat, { text: "❌ Group only." });
+  if (!isGroupChat) return await sock.sendMessage(chat, { text: "❌ Group only command." });
 
-  const admins = participants.filter(p => p.admin).map(p => p.id);
-  let text = "👑 *Attention Admins:*\n";
+  try {
+    const metadata = await sock.groupMetadata(chat);
+    const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
 
-  await sock.sendMessage(chat, { text: text, mentions: admins });
+    if (admins.length === 0) {
+      await sock.sendMessage(chat, { text: "ℹ️ No admins found in this group." });
+      return;
+    }
+
+    let text = "👑 *Attention Admins:*\n\n";
+    for (let a of admins) text += `• @${a.split("@")[0]}\n`;
+
+    await sock.sendMessage(chat, { text: text, mentions: admins });
+  } catch (err) {
+    console.log("⚠️ tagadmins error:", err);
+    await sock.sendMessage(chat, { text: "❌ Failed to tag admins." });
+  }
 
   return;
 }
@@ -784,11 +955,20 @@ if (command === "tostatusgroup") {
 // -------------------------
 // HIDETAG (SEND TEXT WITH ALL MEMBERS MENTIONED)
 if (command === "hidetag") {
+  if (!isGroupChat) return await sock.sendMessage(chat, { text: "❌ Group only." });
   if (!arg) return await sock.sendMessage(chat, { text: "Usage: .hidetag <text>" });
-  const mentions = participants.map(p => p.id);
-  await sock.sendMessage(chat, { text: arg, mentions: mentions });
-}
 
+  try {
+    const metadata = await sock.groupMetadata(chat);
+    const mentions = metadata.participants.map(p => p.id);
+
+    await sock.sendMessage(chat, { text: arg, mentions });
+  } catch (err) {
+    console.log("⚠️ hidetag error:", err);
+    await sock.sendMessage(chat, { text: "❌ Failed to send hidetag." });
+  }
+}
+    
 // -------------------------
 // DELETE GROUP PROFILE PICTURE
 if (command === "delppgroup") {
@@ -800,196 +980,288 @@ if (command === "delppgroup") {
 // ------------------------
         // WARN USER
 if (command === "warn") {
-  if (!isAdmin) return await sock.sendMessage(chat, { text: "❌ Admin only." });
-  const warnUser = m.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-  if (!warnUser) return await sock.sendMessage(chat, { text: "Tag a user to warn." });
+  if (!isGroupChat) return await sock.sendMessage(chat, { text: "❌ Group only." });
 
-  groupWarnings[chat] = groupWarnings[chat] || {};
-  groupWarnings[chat][warnUser] = (groupWarnings[chat][warnUser] || 0) + 1;
+  try {
+    const metadata = await sock.groupMetadata(chat);
+    const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
 
-  await sock.sendMessage(chat, {
-    text: `⚠️ @${warnUser.split("@")[0]} has been warned. Total warnings: ${groupWarnings[chat][warnUser]}`,
-    mentions: [warnUser]
-  });
+    if (!admins.includes(sender)) return await sock.sendMessage(chat, { text: "❌ Admin only command." });
+
+    const warnUser = m.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+    if (!warnUser) return await sock.sendMessage(chat, { text: "Tag a user to warn." });
+
+    groupWarnings[chat] = groupWarnings[chat] || {};
+    groupWarnings[chat][warnUser] = (groupWarnings[chat][warnUser] || 0) + 1;
+
+    await sock.sendMessage(chat, {
+      text: `⚠️ @${warnUser.split("@")[0]} has been warned. Total warnings: ${groupWarnings[chat][warnUser]}`,
+      mentions: [warnUser]
+    });
+  } catch (err) {
+    console.log("⚠️ warn error:", err);
+    await sock.sendMessage(chat, { text: "❌ Failed to warn user." });
+  }
+}
+        // welcome commands
+        sock.ev.on("group-participants.update", async (update) => {
+  try {
+    const { id, participants, action } = update;
+
+    const settings = getSettings();
+    if (!settings[id] || settings[id].welcome !== true) return;
+
+    const metadata = await sock.groupMetadata(id);
+    const groupName = metadata.subject;
+
+    for (let user of participants) {
+      let pp;
+
+      try {
+        pp = await sock.profilePictureUrl(user, "image");
+      } catch {
+        pp = "https://i.imgur.com/JP1gK9C.png";
+      }
+
+      // ===== WELCOME =====
+      if (action === "add") {
+        const rules = `
+📜 *GROUP RULES*
+1️⃣ Respect everyone
+2️⃣ No spam
+3️⃣ No links
+4️⃣ No adult content
+5️⃣ Follow admins
+`;
+
+        await sock.sendMessage(id, {
+          image: { url: pp },
+          caption: `┏▣ ◈ WELCOME ◈
+┃ 👋 Welcome @${user.split("@")[0]}
+┃ 📌 Group: ${groupName}
+┗▣
+
+${rules}`,
+          mentions: [user],
+        });
+      }
+
+      // ===== GOODBYE =====
+      if (action === "remove") {
+        await sock.sendMessage(id, {
+          text: `┏▣ ◈ GOODBYE ◈
+┃ 😢 @${user.split("@")[0]} left the group
+┃ 👋 Farewell!
+┗▣`,
+          mentions: [user],
+        });
+      }
+    }
+  } catch (err) {
+    console.log("Welcome system error:", err);
+  }
 });
-if (command === "tagadmins") {
-  if (!isGroup) return await sock.sendMessage(chat, { text: "❌ Group only." });
-
-  const admins = participants.filter(p => p.admin).map(p => p.id);
-  let text = "👑 *Attention Admins:*\n";
-
-  await sock.sendMessage(chat, { text: text, mentions: admins });
-
-  return;
-}
-        if (command === "welcome") {
-  if (!isGroup) return await sock.sendMessage(chat, { text: "❌ Group only." });
-  if (!isAdmin) return await sock.sendMessage(chat, { text: "❌ Admin only." });
-
-  groupSettings[chat] = groupSettings[chat] || {};
-  groupSettings[chat].welcome = !groupSettings[chat].welcome;
-
-  await sock.sendMessage(chat, {
-    text: `👋 Welcome messages are now ${groupSettings[chat].welcome ? "enabled" : "disabled"}`
-  });
-
-  return;
-}
-
-if (command === "goodbye") {
-  if (!isGroup) return await sock.sendMessage(chat, { text: "❌ Group only." });
-  if (!isAdmin) return await sock.sendMessage(chat, { text: "❌ Admin only." });
-
-  groupSettings[chat] = groupSettings[chat] || {};
-  groupSettings[chat].goodbye = !groupSettings[chat].goodbye;
-
-  await sock.sendMessage(chat, {
-    text: `👋 Goodbye messages are now ${groupSettings[chat].goodbye ? "enabled" : "disabled"}`
-  });
-
-  return;
-    }
-        // Trigger when someone joins or leaves
-if (m.action === "add" && groupSettings[chat]?.welcome) {
-  const newMember = m.participants[0];
-  await sock.sendMessage(chat, {
-    text: `👋 Welcome @${newMember.split("@")[0]}! Enjoy your stay!`,
-    mentions: [newMember]
-  });
-}
-
-if (m.action === "remove" && groupSettings[chat]?.goodbye) {
-  const leftMember = m.participants[0];
-  await sock.sendMessage(chat, {
-    text: `👋 Goodbye @${leftMember.split("@")[0]}! We'll miss you!`,
-    mentions: [leftMember]
-  });
-}
-
-        if (command === "promote") {
-          if (!isGroup(chat)) return sock.sendMessage(chat, { text: "❌ Group only command." });
-          if (mentions.length === 0) return sock.sendMessage(chat, { text: `Usage: .promote @user` });
-
-          try {
-            const metadata = await sock.groupMetadata(chat);
-            const botParticipant = metadata.participants.find(p => p.id === sock.user.id);
-            if (!botParticipant || !botParticipant.admin) {
-              return sock.sendMessage(chat, { text: "❌ Bot needs to be admin." });
-            }
-
-            await sock.groupParticipantsUpdate(chat, mentions, "promote");
-            await sock.sendMessage(chat, { 
-              text: `✅ Promoted ${mentions.length} user(s)`, 
-              mentions: mentions 
-            });
-          } catch (e) {
-            await sock.sendMessage(chat, { text: "❌ Failed to promote user(s)." });
-          }
-          return;
-        }
-
-        if (command === "demote") {
-          if (!isGroup(chat)) return sock.sendMessage(chat, { text: "❌ Group only command." });
-          if (mentions.length === 0) return sock.sendMessage(chat, { text: `Usage: .demote @user` });
-
-          try {
-            const metadata = await sock.groupMetadata(chat);
-            const botParticipant = metadata.participants.find(p => p.id === sock.user.id);
-            if (!botParticipant || !botParticipant.admin) {
-              return sock.sendMessage(chat, { text: "❌ Bot needs to be admin." });
-            }
-
-            await sock.groupParticipantsUpdate(chat, mentions, "demote");
-            await sock.sendMessage(chat, { 
-              text: `⚠️ Demoted ${mentions.length} user(s)`, 
-              mentions: mentions 
-            });
-          } catch (e) {
-            await sock.sendMessage(chat, { text: "❌ Failed to demote user(s)." });
-          }
-          return;
-        }
-
-        if (command === "kick") {
-          if (!isGroup(chat)) return sock.sendMessage(chat, { text: "❌ Group only command." });
-          if (mentions.length === 0) return sock.sendMessage(chat, { text: `Usage: .kick @user` });
-
-          try {
-            const metadata = await sock.groupMetadata(chat);
-            const botParticipant = metadata.participants.find(p => p.id === sock.user.id);
-            if (!botParticipant || !botParticipant.admin) {
-              return sock.sendMessage(chat, { text: "❌ Bot needs to be admin." });
-            }
-
-            await sock.groupParticipantsUpdate(chat, mentions, "remove");
-            await sock.sendMessage(chat, { 
-              text: `👢 Removed ${mentions.length} user(s)`, 
-              mentions: mentions 
-            });
-          } catch (e) {
-            await sock.sendMessage(chat, { text: "❌ Failed to remove user(s)." });
-          }
-          return;
-        }
-        if (command === "kickall") {
-  if (!isGroup) return await sock.sendMessage(chat, { text: "❌ Group only." });
-  if (!isAdmin) return await sock.sendMessage(chat, { text: "❌ Admin only." });
-  if (!isBotAdmin) return await sock.sendMessage(chat, { text: "❌ Bot must be admin." });
-
-  for (let member of participants) {
-    if (!member.admin) {
-      await sock.groupParticipantsUpdate(chat, [member.id], "remove");
-    }
+                    // ===== .vv =====
+if (body === ".vv") {
+  if (!m.message?.extendedTextMessage?.contextInfo?.quotedMessage) {
+    return sock.sendMessage(chat, { text: "❌ Reply to a view-once message." });
   }
 
-  await sock.sendMessage(chat, { text: "✅ All non-admin members removed." });
+  const quoted = m.message.extendedTextMessage.contextInfo.quotedMessage;
 
-  return;
+  if (quoted.viewOnceMessageV2 || quoted.viewOnceMessage) {
+    const viewOnce = quoted.viewOnceMessageV2?.message || quoted.viewOnceMessage?.message;
+
+    if (viewOnce.imageMessage) {
+      return sock.sendMessage(chat, {
+        image: viewOnce.imageMessage,
+        caption: viewOnce.imageMessage.caption || "",
+      });
+    }
+
+    if (viewOnce.videoMessage) {
+      return sock.sendMessage(chat, {
+        video: viewOnce.videoMessage,
+        caption: viewOnce.videoMessage.caption || "",
+      });
+    }
+  } else {
+    return sock.sendMessage(chat, { text: "❌ That is not a view-once message." });
+  }
+}
+            // ===== .toviewonce =====
+if (body === ".toviewonce") {
+  if (!m.message?.extendedTextMessage?.contextInfo?.quotedMessage) {
+    return sock.sendMessage(chat, { text: "❌ Reply to an image or video." });
+  }
+
+  const quoted = m.message.extendedTextMessage.contextInfo.quotedMessage;
+
+  if (quoted.imageMessage) {
+    return sock.sendMessage(chat, {
+      viewOnceMessage: {
+        message: {
+          imageMessage: quoted.imageMessage,
+        },
+      },
+    });
+  }
+
+  if (quoted.videoMessage) {
+    return sock.sendMessage(chat, {
+      viewOnceMessage: {
+        message: {
+          videoMessage: quoted.videoMessage,
+        },
+      },
+    });
+  }
+
+  return sock.sendMessage(chat, { text: "❌ Only image or video supported." });
+}
+    
+        if (command === "promote") {
+  try {
+    if (!isGroup(chat)) return await sock.sendMessage(chat, { text: "❌ Group only command." });
+    if (!mentions || mentions.length === 0) return await sock.sendMessage(chat, { text: "Usage: .promote @user" });
+
+    // Check sender admin
+    const metadata = await sock.groupMetadata(chat);
+    const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
+    if (!admins.includes(sender)) return await sock.sendMessage(chat, { text: "❌ Admin only command." });
+
+    // Check bot admin
+    const botParticipant = metadata.participants.find(p => p.id === sock.user.id);
+    if (!botParticipant || !botParticipant.admin) return await sock.sendMessage(chat, { text: "❌ Bot needs to be admin." });
+
+    await sock.groupParticipantsUpdate(chat, mentions, "promote");
+    await sock.sendMessage(chat, { text: `✅ Promoted ${mentions.length} user(s)`, mentions });
+  } catch (err) {
+    console.log("⚠️ .promote error:", err);
+    await sock.sendMessage(chat, { text: "❌ Failed to promote user(s)." });
+  }
         }
-        if (command === "close" || command === "open") {
-  if (!isGroup) return await sock.sendMessage(chat, { text: "❌ Group only." });
-  if (!isAdmin) return await sock.sendMessage(chat, { text: "❌ Admin only." });
 
-  await sock.groupSettingUpdate(chat, command === "close" ? "announcement" : "not_announcement");
+        // ===== DEMOTE =====
+if (command === "demote") {
+  try {
+    if (!isGroup(chat)) return await sock.sendMessage(chat, { text: "❌ Group only command." });
+    if (!mentions || mentions.length === 0) return await sock.sendMessage(chat, { text: "Usage: .demote @user" });
 
-  await sock.sendMessage(chat, {
-    text: `✅ Group is now ${command === "close" ? "closed (only admins can send messages)" : "open"}`
-  });
+    const metadata = await sock.groupMetadata(chat);
+    const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
+    if (!admins.includes(sender)) return await sock.sendMessage(chat, { text: "❌ Admin only command." });
 
-  return;
-        }
+    const botParticipant = metadata.participants.find(p => p.id === sock.user.id);
+    if (!botParticipant || !botParticipant.admin) return await sock.sendMessage(chat, { text: "❌ Bot needs to be admin." });
 
+    await sock.groupParticipantsUpdate(chat, mentions, "demote");
+    await sock.sendMessage(chat, { text: `⚠️ Demoted ${mentions.length} user(s)`, mentions });
+  } catch (err) {
+    console.log("⚠️ .demote error:", err);
+    await sock.sendMessage(chat, { text: "❌ Failed to demote user(s)." });
+  }
+}
+
+// ===== KICK =====
+if (command === "kick") {
+  try {
+    if (!isGroup(chat)) return await sock.sendMessage(chat, { text: "❌ Group only command." });
+    if (!mentions || mentions.length === 0) return await sock.sendMessage(chat, { text: "Usage: .kick @user" });
+
+    const metadata = await sock.groupMetadata(chat);
+    const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
+    if (!admins.includes(sender)) return await sock.sendMessage(chat, { text: "❌ Admin only command." });
+
+    const botParticipant = metadata.participants.find(p => p.id === sock.user.id);
+    if (!botParticipant || !botParticipant.admin) return await sock.sendMessage(chat, { text: "❌ Bot needs to be admin." });
+
+    await sock.groupParticipantsUpdate(chat, mentions, "remove");
+    await sock.sendMessage(chat, { text: `👢 Removed ${mentions.length} user(s)`, mentions });
+  } catch (err) {
+    console.log("⚠️ .kick error:", err);
+    await sock.sendMessage(chat, { text: "❌ Failed to remove user(s)." });
+  }
+}
+
+// ===== KICKALL =====
+if (command === "kickall") {
+  try {
+    if (!isGroup(chat)) return await sock.sendMessage(chat, { text: "❌ Group only." });
+
+    const metadata = await sock.groupMetadata(chat);
+    const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
+    if (!admins.includes(sender)) return await sock.sendMessage(chat, { text: "❌ Admin only command." });
+
+    const botParticipant = metadata.participants.find(p => p.id === sock.user.id);
+    if (!botParticipant || !botParticipant.admin) return await sock.sendMessage(chat, { text: "❌ Bot must be admin." });
+
+    for (let member of metadata.participants) {
+      if (!member.admin) {
+        await sock.groupParticipantsUpdate(chat, [member.id], "remove");
+      }
+    }
+
+    await sock.sendMessage(chat, { text: "✅ All non-admin members removed." });
+  } catch (err) {
+    console.log("⚠️ .kickall error:", err);
+    await sock.sendMessage(chat, { text: "❌ Failed to kick all members." });
+  }
+}
+
+// ===== CLOSE / OPEN =====
+if (command === "close" || command === "open") {
+  try {
+    if (!isGroup(chat)) return await sock.sendMessage(chat, { text: "❌ Group only." });
+
+    const metadata = await sock.groupMetadata(chat);
+    const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
+    if (!admins.includes(sender)) return await sock.sendMessage(chat, { text: "❌ Admin only command." });
+
+    const botParticipant = metadata.participants.find(p => p.id === sock.user.id);
+    if (!botParticipant || !botParticipant.admin) return await sock.sendMessage(chat, { text: "❌ Bot must be admin." });
+
+    await sock.groupSettingUpdate(chat, command === "close" ? "announcement" : "not_announcement");
+
+    await sock.sendMessage(chat, { text: `✅ Group is now ${command === "close" ? "closed (only admins can send messages)" : "open"}` });
+  } catch (err) {
+    console.log("⚠️ .close/.open error:", err);
+    await sock.sendMessage(chat, { text: "❌ Failed to update group settings." });
+  }
+}
         if (command === "leave") {
-          if (!isGroup(chat)) {
-            return sock.sendMessage(chat, { text: "❌ This command only works in groups." });
-          }
+  try {
+    if (!isGroup(chat)) return await sock.sendMessage(chat, { text: "❌ This command only works in groups." });
 
-          const isOwner = global.owner.some(owner => owner[0].includes(senderNum.replace('+', '')));
-          if (!isOwner) {
-            return sock.sendMessage(chat, { text: "❌ Owner only command." });
-          }
+    const isOwner = global.owner.some(owner => owner[0].includes(senderNum.replace('+', '')));
+    if (!isOwner) return await sock.sendMessage(chat, { text: "❌ Owner only command." });
 
-          try {
-            await sock.sendMessage(chat, { text: "👋 Leaving group..." });
-            await sock.groupLeave(chat);
-          } catch (e) {
-            await sock.sendMessage(chat, { text: "❌ Failed to leave group." });
-          }
-          return;
+    await sock.sendMessage(chat, { text: "👋 Leaving group..." });
+    await sock.groupLeave(chat);
+  } catch (err) {
+    console.error("⚠️ .leave error:", err);
+    await sock.sendMessage(chat, { text: "❌ Failed to leave group." });
+  }
+  return;
         }
         // Auto-reply AI when bot is mentioned
-if (m.message?.conversation && m.message.conversation.toLowerCase().includes("@bot")) {
-  const query = m.message.conversation.replace(/@bot/gi, "").trim();
+    if (m.message?.conversation && m.message.conversation.toLowerCase().includes("@bot")) {
+  try {
+    const query = m.message.conversation.replace(/@bot/gi, "").trim();
+    if (!query) return;
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [{ role: "user", content: query }]
-  });
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: query }]
+    });
 
-  const reply = response.choices[0].message.content;
+    const reply = response.choices?.[0]?.message?.content;
+    if (reply) await sock.sendMessage(chat, { text: reply });
+  } catch (err) {
+    console.error("⚠️ Auto-reply AI error:", err);
+  }
+    }
 
-  await sock.sendMessage(chat, { text: reply });
-}
   // ===== IMAGE GENERATION COMMANDS =====
 const imageStyles = {
   "1917style": "1917 cinematic, realistic",
@@ -1015,196 +1287,178 @@ if (imageStyles[command]) {
 
         // ----- STICKER -----
         if (command === "sticker" || command === "s") {
-          try {
-            let mediaMsg = m;
-            if (m.message?.extendedTextMessage?.contextInfo?.quotedMessage) {
-              mediaMsg = { 
-                key: m.key, 
-                message: m.message.extendedTextMessage.contextInfo.quotedMessage 
-              };
-            }
+  try {
+    let mediaMsg = m;
+    if (m.message?.extendedTextMessage?.contextInfo?.quotedMessage) {
+      mediaMsg = { key: m.key, message: m.message.extendedTextMessage.contextInfo.quotedMessage };
+    }
 
-            const media = mediaMsg.message?.imageMessage || mediaMsg.message?.videoMessage;
-            if (!media) {
-              await sock.sendMessage(chat, { 
-                text: "📸 Reply to an image/video or send one with caption .sticker" 
-              });
-              return;
-            }            const stream = await sock.downloadMediaMessage(mediaMsg);
-            await sock.sendMessage(chat, { sticker: stream });
-          } catch (e) {
-            console.error('Sticker error:', e);
-            await sock.sendMessage(chat, { text: "❌ Could not create sticker." });
-          }
-          return;
+    const media = mediaMsg.message?.imageMessage || mediaMsg.message?.videoMessage;
+    if (!media) return await sock.sendMessage(chat, { text: "📸 Reply to an image/video or send one with caption .sticker" });
+
+    const stream = await sock.downloadMediaMessage(mediaMsg);
+    await sock.sendMessage(chat, { sticker: stream });
+  } catch (err) {
+    console.error("⚠️ .sticker error:", err);
+    await sock.sendMessage(chat, { text: "❌ Could not create sticker." });
+  }
+  return;
         }
 
         // ----- MUSIC & YOUTUBE -----
         if (command === "song" || command === "yt") {
-    if (!arg) return await sock.sendMessage(chat, { text: `Usage: .song <song name>` });
+  if (!arg) return await sock.sendMessage(chat, { text: "Usage: .song <song name>" });
 
-    try {
-        const response = await youtube.search.list({
-            part: 'snippet',
-            q: arg,
-            maxResults: 3,
-            type: 'video'
-        });
+  try {
+    const response = await youtube.search.list({
+      part: "snippet",
+      q: arg,
+      maxResults: 3,
+      type: "video",
+    });
 
-        const videos = response.data.items;
-
-        if (!videos.length) {
-            return await sock.sendMessage(chat, { text: "❌ No results found." });
-        }
-
-        let resultText = "🎵 *Search Results:*\n\n";
-        videos.forEach((video, i) => {
-            resultText += `${i+1}. *${video.snippet.title}*\n`;
-            resultText += `   🔗 https://www.youtube.com/watch?v=${video.id.videoId}\n\n`;
-        });
-
-        await sock.sendMessage(chat, { text: resultText });
-    } catch (e) {
-        console.error('YouTube API search error:', e);
-        await sock.sendMessage(chat, { text: "❌ Error searching for song." });
+    const videos = response.data.items;
+    if (!videos || videos.length === 0) {
+      return await sock.sendMessage(chat, { text: "❌ No results found." });
     }
-    return;
-}
+
+    let resultText = "🎵 *Search Results:*\n\n";
+    videos.forEach((video, i) => {
+      resultText += `${i + 1}. *${video.snippet.title}*\n`;
+      resultText += `   🔗 https://www.youtube.com/watch?v=${video.id.videoId}\n\n`;
+    });
+
+    await sock.sendMessage(chat, { text: resultText /*, mentions: [sender]*/ });
+  } catch (err) {
+    console.error("⚠️ YouTube API search error:", err);
+    await sock.sendMessage(chat, { text: "❌ Error searching for song." });
+  }
+
+  return;
+        }
         //--------------MOVIES-----------------
         if (command === "imdb") {
-  if (!arg) {
-    return await sock.sendMessage(chat, {
-      text: "Usage: .imdb <movie name>"
-    });
-  }
+  if (!arg) return await sock.sendMessage(chat, { text: "Usage: .imdb <movie name>" });
 
   try {
     const movie = await imdbClient.get({ name: arg });
 
-    const movieInfo = `🎬 *${movie.title}* (${movie.year})
+    if (!movie) throw new Error("Movie not found");
 
-⭐ Rating: ${movie.rating}
-🎭 Genre: ${movie.genres}
-🎥 Director: ${movie.director}
-👥 Actors: ${movie.actors}
+    const movieInfo = `🎬 *${movie.title || "N/A"}* (${movie.year || "N/A"})
+
+⭐ Rating: ${movie.rating || "N/A"}
+🎭 Genre: ${movie.genres || "N/A"}
+🎥 Director: ${movie.director || "N/A"}
+👥 Actors: ${movie.actors || "N/A"}
 
 📖 Plot:
-${movie.plot}`;
+${movie.plot || "N/A"}`;
 
-    // Send with poster image if available
     if (movie.poster && movie.poster !== "N/A") {
-      await sock.sendMessage(chat, {
-        image: { url: movie.poster },
-        caption: movieInfo
-      });
+      await sock.sendMessage(chat, { image: { url: movie.poster }, caption: movieInfo });
     } else {
       await sock.sendMessage(chat, { text: movieInfo });
     }
 
-  } catch (error) {
-    console.error("IMDb Error:", error);
-    await sock.sendMessage(chat, {
-      text: "❌ Movie not found."
-    });
+  } catch (err) {
+    console.error("⚠️ IMDb error:", err);
+    await sock.sendMessage(chat, { text: "❌ Movie not found." });
+  }
+
+  return;
+        }
+        // ----- MATH -----
+        if (command === "math") {
+  if (!arg) return sock.sendMessage(chat, { text: `Usage: .math 5+5*2` });
+
+  try {
+    // Remove unsafe characters
+    const safeArg = arg.replace(/[^0-9+\-*/().\s]/g, '');
+    const answer = eval(safeArg); // Use mathjs for safer evaluation if possible
+    await sock.sendMessage(chat, { text: `🧮 ${arg} = *${answer}*` });
+  } catch (err) {
+    console.error("Math command error:", err);
+    await sock.sendMessage(chat, { text: "❌ Invalid equation." });
   }
 
   return;
         }
 
-        // ----- MATH -----
-        if (command === "math") {
-          if (!arg) return sock.sendMessage(chat, { text: `Example: .math 5+5*2` });
-
-          try {
-            // Safe math evaluation
-            const safeArg = arg.replace(/[^0-9+\-*/().\s]/g, '');
-            let answer = eval(safeArg);
-            await sock.sendMessage(chat, { text: `🧮 ${arg} = *${answer}*` });
-          } catch (e) {
-            await sock.sendMessage(chat, { text: "❌ Invalid equation." });
-          }
-          return;
-        }
-
         // ----- QR CODE -----
         if (command === "qr") {
-          if (!arg) return sock.sendMessage(chat, { text: `Example: .qr hello world` });
+  if (!arg) return sock.sendMessage(chat, { text: `Usage: .qr hello world` });
 
-          try {
-            const qrText = arg.length > 500 ? arg.substring(0, 500) : arg;
-            const qrImg = await QRCode.toBuffer(qrText, {
-              errorCorrectionLevel: 'M',
-              margin: 2,
-              width: 300
-            });
-            await sock.sendMessage(chat, { 
-              image: qrImg, 
-              caption: `QR Code for: ${qrText.substring(0, 50)}${qrText.length > 50 ? '...' : ''}` 
-            });
-          } catch (e) {
-            console.error('QR error:', e);
-            await sock.sendMessage(chat, { text: "❌ Failed to generate QR code." });
-          }
-          return;
+  try {
+    const qrText = arg.slice(0, 500); // Limit length
+    const qrImg = await QRCode.toBuffer(qrText, {
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      width: 300
+    });
+
+    const caption = `QR Code for: ${qrText.length > 50 ? qrText.slice(0, 50) + "..." : qrText}`;
+    await sock.sendMessage(chat, { image: qrImg, caption });
+  } catch (err) {
+    console.error("QR command error:", err);
+    await sock.sendMessage(chat, { text: "❌ Failed to generate QR code." });
+  }
+
+  return;
         }
 
         // ----- OWNER COMMANDS -----
         if (command === "sudo") {
-          const primaryOwner = global.owner[0][0].replace('+', '');
-          if (senderNum !== primaryOwner) {
-            return await sock.sendMessage(chat, { text: "❌ Owner only command." });
-          }
+  const primaryOwner = global.owner[0][0].replace('+', '');
+  if (senderNum !== primaryOwner) {
+    return await sock.sendMessage(chat, { text: "❌ Owner only command." });
+  }
 
-          const code = arg;
-          if (!code) return await sock.sendMessage(chat, { text: `Usage: .sudo <javascript code>` });
+  if (!arg) return await sock.sendMessage(chat, { text: `Usage: .sudo <javascript code>` });
 
-          try {
-            let result = eval(code);
-            const resultStr = String(result).slice(0, 2000);
-            await sock.sendMessage(chat, { text: `✅ Result:\n\`\`\`${resultStr}\`\`\`` });
-          } catch (e) {
-            await sock.sendMessage(chat, { text: `❌ Error:\n\`\`\`${String(e)}\`\`\`` });
-          }
-          return;
+  try {
+    let result = eval(arg);
+    const resultStr = String(result).slice(0, 2000);
+    await sock.sendMessage(chat, { text: `✅ Result:\n\`\`\`${resultStr}\`\`\`` });
+  } catch (err) {
+    console.error("Sudo command error:", err);
+    await sock.sendMessage(chat, { text: `❌ Error:\n\`\`\`${String(err)}\`\`\`` });
+  }
+
+  return;
         }
 
         if (command === "broadcast") {
-          const primaryOwner = global.owner[0][0].replace('+', '');
-          if (senderNum !== primaryOwner) {
-            return await sock.sendMessage(chat, { text: "❌ Owner only command." });
-          }
+  const primaryOwner = global.owner[0][0].replace('+', '');
+  if (senderNum !== primaryOwner) {
+    return await sock.sendMessage(chat, { text: "❌ Owner only command." });
+  }
 
-          const messageToSend = arg;
-          if (!messageToSend) {
-            return await sock.sendMessage(chat, { text: `Usage: .broadcast <message>` });
-          }
+  if (!arg) return await sock.sendMessage(chat, { text: `Usage: .broadcast <message>` });
 
-          await sock.sendMessage(chat, { text: `📢 Starting broadcast to all chats...` });
+  const messageToSend = arg;
+  await sock.sendMessage(chat, { text: `📢 Starting broadcast to all chats...` });
 
-          let success = 0;
-          let failed = 0;
-          const chats = Object.keys(sock.store.chats || {}).slice(0, 50); // Limit to 50 chats
+  let success = 0;
+  let failed = 0;
+  const chats = Object.keys(sock.store.chats || {}).slice(0, 50); // Limit to 50 chats
 
-          for (const c of chats) {
-            if (c.endsWith('@g.us') || c.endsWith('@s.whatsapp.net')) {
-              try {
-                await sock.sendMessage(c, { 
-                  text: `📢 *Broadcast from ${BOT_NAME}*\n\n${messageToSend}` 
-                });
-                success++;
-                await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
-              } catch (e) {
-                failed++;
-              }
-            }
-          }
+  for (const c of chats) {
+    if (c.endsWith("@g.us") || c.endsWith("@s.whatsapp.net")) {
+      try {
+        await sock.sendMessage(c, { text: `📢 *Broadcast from ${BOT_NAME || "Bot"}*\n\n${messageToSend}` });
+        success++;
+        await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
+      } catch (e) {
+        failed++;
+        console.error(`Broadcast failed for ${c}:`, e);
+      }
+    }
+  }
 
-          await sock.sendMessage(chat, { 
-            text: `✅ Broadcast completed!\n• Sent: ${success}\n• Failed: ${failed}` 
-          });
-          return;
-        }
-
+  await sock.sendMessage(chat, { text: `✅ Broadcast completed!\n• Sent: ${success}\n• Failed: ${failed}` });
+  return;
+      }
         // ----- FUN COMMANDS -----
         if (command === "quote") {
           const quotes = [
@@ -1364,6 +1618,15 @@ ${movie.plot}`;
             delete games.ticTacToe[chat];
             return;
           }
+          function tttBoardToText(board) {
+  // Converts array to visual board, e.g., with numbers and symbols
+  let b = board.map((c, i) => c || (i + 1)).map(c => ` ${c} `);
+  return `${b[0]}|${b[1]}|${b[2]}\n───┼───┼───\n${b[3]}|${b[4]}|${b[5]}\n───┼───┼───\n${b[6]}|${b[7]}|${b[8]}`;
+}
+
+function jidToNumber(jid) {
+  return jid.split("@")[0];
+}
 
           // Switch turn
           game.turn = game.players.find(p => p !== player);
@@ -1389,6 +1652,9 @@ ${movie.plot}`;
             guessed: [],
             createdAt: Date.now()
           };
+          if (games.hangman[chat]) {
+  return await sock.sendMessage(chat, { text: "❌ A hangman game is already in progress in this chat." });
+          }
 
           await sock.sendMessage(chat, { 
             text: `🎯 *Hangman Started!*\n\nWord: ${games.hangman[chat].display.join(" ")}\nTries left: 6\n\nGuess a letter with: .hangmanguess <letter>` 
@@ -1409,6 +1675,9 @@ ${movie.plot}`;
 
           if (game.guessed.includes(letter)) {
             return await sock.sendMessage(chat, { text: "Letter already guessed!" });
+          }
+          if (!letter) {
+  return await sock.sendMessage(chat, { text: "❌ Please guess a single letter: .hangmanguess <letter>" });
           }
 
           game.guessed.push(letter);
@@ -1505,6 +1774,15 @@ ${movie.plot}`;
           if (!arg) {
             return await sock.sendMessage(chat, { text: `Usage: .quizanswer <answer>` });
           }
+          if (games.quizzes[chat]?.active) {
+  return await sock.sendMessage(chat, { text: "❌ A quiz is already active in this chat!" });
+          }
+          setTimeout(() => {
+  if (games.quizzes[chat]?.active) {
+    delete games.quizzes[chat];
+    sock.sendMessage(chat, { text: "⌛ Quiz timed out!" });
+  }
+}, 5 * 60 * 1000); // 5 minutes
 
           const userAnswer = arg.trim().toLowerCase();
           const correctAnswer = quiz.answer.toLowerCase();
@@ -1563,12 +1841,14 @@ ${movie.plot}`;
         for (const contact of contacts) {
           const num = contact.id;
           if (!num || num.endsWith('@g.us')) continue;
-
+          
           // Send welcome message
           await sock.sendMessage(num, { 
-            text: `👋 Hello! I'm *${VORTE PRO}*\n\nType *.menu* to see all commands.\n\nNeed help? Contact my owner!` 
+            text: `👋 Hello! I'm *${VORTE PRO}*\n\nType .menu to see all commands.\n\nNeed help? Contact my owner!` 
           });
         }
+        const BOT_NAME = "VORTE PRO"; 
+console.log(`✅ ${BOT_NAME} is ready!`);
       } catch (error) {
         console.error('Welcome message error:', error);
       }
@@ -1581,8 +1861,8 @@ ${movie.plot}`;
       }
     });
 
-    console.log(`✅ ${VORTE PRO} is ready!`);
-    return sock;
+    const BOT_NAME = "VORTE PRO"; 
+console.log(`✅ ${BOT_NAME} is ready!`);
 
   } catch (error) {
     console.error('❌ Failed to start WhatsApp bot:', error);
